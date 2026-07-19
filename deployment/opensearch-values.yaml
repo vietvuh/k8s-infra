@@ -1,0 +1,91 @@
+# Values for chart: opensearch/opensearch (v3.7.0)
+# Installs the OpenSearch cluster itself (master+data+ingest nodes combined
+# into a single nodeGroup — appropriate for a 3-node dev cluster).
+#
+# helm install opensearch opensearch/opensearch \
+#   -n opensearch --version 3.7.0 -f deployment/opensearch-values.yaml --wait
+#
+# See docs/guide/opensearch-initialize.md for the full walkthrough, including
+# the admin-credentials Secret this file references but does not define.
+
+clusterName: "opensearch-cluster"
+nodeGroup: "master"
+
+roles:
+  - master
+  - data
+  - ingest
+  - remote_cluster_client
+
+replicas: 3
+
+# Pin to the dedicated OpenSearch node-pool from docs/guide/k3d-initialize.md
+# and tolerate its taint.
+nodeSelector:
+  node-pool: opensearch
+
+tolerations:
+  - key: "dedicated"
+    operator: "Equal"
+    value: "opensearch"
+    effect: "NoSchedule"
+
+# "hard" enforces exactly one pod per node (vs "soft", which only prefers
+# spreading) — matches the 3 dedicated nodes 1:1, per AGENTS.md.
+antiAffinity: "hard"
+antiAffinityTopologyKey: "kubernetes.io/hostname"
+
+persistence:
+  enabled: true
+  size: 8Gi
+  # storageClassName intentionally unset — falls back to the cluster default
+  # (local-path, bundled with k3d/k3s), which is fine for local dev.
+
+resources:
+  requests:
+    cpu: "500m"
+    memory: "1200Mi"
+  limits:
+    cpu: "1500m"
+    memory: "1200Mi"
+
+opensearchJavaOpts: "-Xmx512M -Xms512M"
+
+# OpenSearch 2.12+/3.x will not bootstrap the security-plugin demo config
+# without a custom admin password supplied this way. Sourced from a Secret
+# created out-of-band (see the guide) — never put a real password in this
+# file, it's checked into git.
+extraEnvs:
+  - name: OPENSEARCH_INITIAL_ADMIN_PASSWORD
+    valueFrom:
+      secretKeyRef:
+        name: opensearch-admin-credentials
+        key: password
+
+# Traefik ingress for the REST API (api.opensearch.local:8080). The API is
+# HTTPS-only (security plugin + demo certs) even though the browser-facing
+# side is plain HTTP, so Traefik needs to be told to speak HTTPS to the
+# backend and to skip verifying the self-signed demo cert — see the
+# ServersTransport in extraObjects below, referenced here by
+# "<namespace>-<name>@kubernetescrd" (Traefik always requires the namespace
+# prefix in this annotation, even for a same-namespace reference).
+service:
+  annotations:
+    traefik.ingress.kubernetes.io/service.serversscheme: https
+    traefik.ingress.kubernetes.io/service.serverstransport: opensearch-insecure-backend-tls@kubernetescrd
+
+ingress:
+  enabled: true
+  ingressClassName: traefik
+  path: /
+  hosts:
+    - api.opensearch.local
+
+extraObjects:
+  - apiVersion: traefik.io/v1alpha1
+    kind: ServersTransport
+    metadata:
+      name: insecure-backend-tls
+      namespace: opensearch
+    spec:
+      insecureSkipVerify: true

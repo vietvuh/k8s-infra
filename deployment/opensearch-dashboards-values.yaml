@@ -1,0 +1,54 @@
+# Values for chart: opensearch/opensearch-dashboards (v3.7.0)
+# Installs the Dashboards UI as a separate Helm release from the OpenSearch
+# cluster itself — see docs/guide/opensearch-initialize.md for why this is a
+# second file rather than folded into opensearch-values.yaml.
+#
+# helm install opensearch-dashboards opensearch/opensearch-dashboards \
+#   -n opensearch --version 3.7.0 -f deployment/opensearch-dashboards-values.yaml --wait
+
+replicaCount: 1
+
+opensearchHosts: "https://opensearch-cluster-master:9200"
+
+# Deliberately NOT pinned to the dedicated OpenSearch node-pool: Dashboards is
+# a stateless UI with no data-locality requirement, and scheduling it there
+# would just compete with OpenSearch itself for the 3 dedicated nodes'
+# resources. Leaving nodeSelector/tolerations unset lets it land on the
+# general-purpose nodes instead.
+
+extraEnvs:
+  - name: OPENSEARCH_PASSWORD
+    valueFrom:
+      secretKeyRef:
+        name: opensearch-admin-credentials
+        key: password
+
+config:
+  opensearch_dashboards.yml: |
+    server.host: "0.0.0.0"
+    opensearch.hosts: ["https://opensearch-cluster-master:9200"]
+    opensearch.username: "admin"
+    opensearch.password: "${OPENSEARCH_PASSWORD}"
+    # Demo certs are self-signed and won't match the service hostname —
+    # skip verification rather than importing the demo CA, this is a local
+    # dev cluster.
+    opensearch.ssl.verificationMode: none
+
+resources:
+  requests:
+    cpu: "250m"
+    memory: "512Mi"
+  limits:
+    cpu: "500m"
+    memory: "512Mi"
+
+ingress:
+  enabled: true
+  ingressClassName: traefik
+  hosts:
+    - host: dashboard.opensearch.local
+      paths:
+        - path: /
+          backend:
+            serviceName: ""
+            servicePort: ""

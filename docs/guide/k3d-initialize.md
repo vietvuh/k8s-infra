@@ -37,6 +37,7 @@ k3d cluster create k8s-infra-cluster \
   --agents 6 \
   --k3s-node-label "node-pool=opensearch@agent:0,1,2" \
   --k3s-arg "--node-taint=dedicated=opensearch:NoSchedule@agent:0,1,2" \
+  -p "8080:80@loadbalancer" \
   --wait
 ```
 
@@ -47,6 +48,20 @@ k3d cluster create k8s-infra-cluster \
 - `--k3s-arg "--node-taint=..."` applies a matching `NoSchedule` taint at
   kubelet registration time, so only pods with an explicit toleration for
   `dedicated=opensearch` land on agents `0,1,2`.
+- `-p "8080:80@loadbalancer"` publishes the cluster's HTTP ingress (Traefik,
+  bundled with k3s by default) on `localhost:8080` — needed for
+  [opensearch-initialize.md](opensearch-initialize.md)'s ingress routing.
+
+If you already have this cluster running without that port mapping, you can
+add it without recreating the cluster:
+
+```bash
+k3d cluster edit k8s-infra-cluster --port-add 8080:80@loadbalancer
+```
+
+(This is marked `[EXPERIMENTAL]` by k3d — it works by recreating just the
+`serverlb` container, not the cluster nodes, so existing workloads are
+unaffected.)
 
 ## 2. Point kubectl at the cluster
 
